@@ -431,6 +431,15 @@ body.t-rose{--cyan:#fb7185;--violet:#f59e0b}
       </div>
     </div>
     <div class="sidebar-scroll">
+        <div class="sidebar-section">
+  <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
+    Conversaciones
+    <button onclick="newConversation()" style="background:none;border:none;color:var(--cyan);cursor:pointer;font-size:18px;line-height:1" title="Nueva conversación">+</button>
+  </div>
+  <div id="conv-list" style="display:flex;flex-direction:column;gap:2px;max-height:200px;overflow-y:auto">
+    <div style="font-size:11px;color:var(--text3);padding:8px 10px">Cargando…</div>
+  </div>
+</div>
       <div class="sidebar-section">
         <div class="section-label">IA Chat</div>
         <button class="sidebar-btn active" onclick="switchPanel('chat-panel')" id="btn-chat">
@@ -872,7 +881,7 @@ body.t-rose{--cyan:#fb7185;--violet:#f59e0b}
 // ══════════════════════════════════════════
 // APIS — CLAVES
 // ══════════════════════════════════════════
-const GEMINI_KEY = 'AQ.Ab8RN6KuQcDP2iGUMESFLP2HDSJ5AshZj0BNh_2AKZKKsonOkw'; // ← Reemplaza con tu Gemini key real
+const GEMINI_KEY = 'AQ.Ab8RN6L2iAuTwIoLPNUGs65qjaB9ODx_YiH-z5rVHmFqE_72Hw'; // ← Reemplaza con tu Gemini key real
 const GROQ_KEY   = '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';
 
 const GEMINI_MODELS = {
@@ -940,46 +949,473 @@ const SFX={
 };
 
 // ══════════════════════════════════════════
-// AI CALL — Gemini o Groq
-// ══════════════════════════════════════════
-async function callAI({messages, system='', maxTokens=1000, temperature=0.7}){
-  if(currentProvider==='gemini'){
-    return callGemini({messages,system,maxTokens,temperature});
-  }else{
-    return callGroq({messages,system,maxTokens,temperature});
+// API CALLS — CORS FIX
+async function callGemini({messages, system, maxTokens, temperature}){
+  const modelMap = {
+    'gemini-flash-latest':   'gemini-flash-latest',
+    'gemini-flash-latest':     'gemini-flash-latest',
+    'gemini-flash-latest': 'gemini-flash-latest',
+  };
+  const modelName = modelMap[currentModel] || 'gemini-flash-latest';
+
+  const contents = [];
+  const fullMessages = system
+    ? [
+        {role:'user', content:`[SISTEMA]:\n${system}\n\nConfirma con OK.`},
+        {role:'assistant', content:'OK, entendido.'},
+        ...messages
+      ]
+    : messages;
+
+  fullMessages.forEach(m => {
+    contents.push({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    });
+  });
+
+  const body = {
+    contents,
+    generationConfig: {
+      temperature: temperature || 0.7,
+      maxOutputTokens: maxTokens || 1000,
+    }
+  };
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }
+  );
+
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error?.message || 'Error Gemini');
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if(!text) throw new Error('Sin respuesta de Gemini');
+  return text;
+}
+
+async function callGroq({messages, system, maxTokens, temperature}){
+  const msgs = [];
+  if(system) msgs.push({ role:'system', content: system });
+  messages.forEach(m => msgs.push({ role: m.role, content: m.content }));
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${GROQ_KEY}`
+    },
+    body: JSON.stringify({
+      model: currentModel,
+      messages: msgs,
+      max_tokens: maxTokens || 1000,
+      temperature: temperature || 0.7
+    })
+  });
+
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error?.message || 'Error Groq');
+  return data.choices?.[0]?.message?.content || '…';
+}
+
+async function callAI({messages, system='', maxTokens, temperature}){
+  // Usa los tokens y temperatura de prefs si no se pasan
+  const mt  = maxTokens   || prefs.max_tokens   || 1000;
+  const tmp = temperature || prefs.temperature  || 0.7;
+
+  try {
+    if(currentProvider === 'gemini'){
+      return await callGemini({messages, system, maxTokens: mt, temperature: tmp});
+    } else {
+      return await callGroq({messages, system, maxTokens: mt, temperature: tmp});
+    }
+  } catch(e) {
+    // Si Gemini falla por CORS u otro error → fallback a Groq automático
+    if(currentProvider === 'gemini'){
+      console.warn('Gemini falló, cambiando a Groq:', e.message);
+      showToast('Gemini no disponible — usando Groq ⚡', 'err');
+      currentProvider = 'groq';
+      currentModel    = 'llama-3.3-70b-versatile';
+      document.getElementById('model-topbar-label').textContent = 'LLaMA 3.3';
+      document.getElementById('status-model-label').textContent = 'LLaMA 3.3 EN LÍNEA';
+      // Reintentar con Groq
+      return await callGroq({messages, system, maxTokens: mt, temperature: tmp});
+    }
+    // Si Groq también falla
+    throw new Error('Sin conexión con la IA. Verifica tu internet.');
   }
 }
 
-async function callGemini({messages,system,maxTokens,temperature}){
-  const modelName = GEMINI_MODELS[currentModel]||'gemini-flash-latest';
-  const contents = messages.map(m=>({
-    role: m.role==='assistant'?'model':'user',
-    parts:[{text:m.content}]
-  }));
-  const body={
-    contents,
-    generationConfig:{temperature,maxOutputTokens:maxTokens},
-  };
-  if(system) body.system_instruction={parts:[{text:system}]};
-  const r=await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_KEY}`,
-    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}
-  );
-  const d=await r.json();
-  if(!r.ok) throw new Error(d.error?.message||'Error Gemini');
-  return d.candidates?.[0]?.content?.parts?.[0]?.text||'…';
+async function callGroq({messages, system, maxTokens, temperature}){
+  const msgs = [];
+  if(system) msgs.push({ role: 'system', content: system });
+  messages.forEach(m => msgs.push({ role: m.role, content: m.content }));
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${GROQ_KEY}`
+    },
+    body: JSON.stringify({
+      model: currentModel,
+      messages: msgs,
+      max_tokens: maxTokens || 1000,
+      temperature: temperature || 0.7
+    })
+  });
+
+  const data = await res.json();
+  if(!res.ok){
+    throw new Error(data.error?.message || 'Error Groq');
+  }
+  return data.choices?.[0]?.message?.content || '…';
 }
 
-async function callGroq({messages,system,maxTokens,temperature}){
-  const msgs=system?[{role:'system',content:system},...messages]:messages;
-  const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':`Bearer ${GROQ_KEY}`},
-    body:JSON.stringify({model:currentModel,messages:msgs,max_tokens:maxTokens,temperature})
+// ══════════════════════════════════════════
+// GUARDAR Y CARGAR CONVERSACIONES
+// ══════════════════════════════════════════
+let currentConvId = null;
+let savedConversations = [];
+
+async function saveConversation(){
+  if(!currentUser || !prefs.save_history || chatHistory.length === 0) return;
+  try{
+    const title = chatHistory[0]?.content?.slice(0,50) + '…' || 'Conversación';
+    if(currentConvId){
+      await db.collection('conversations').doc(currentConvId).update({
+        messages: chatHistory,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        title,
+        model: currentModel
+      });
+    } else {
+      const ref = await db.collection('conversations').add({
+        uid: currentUser.uid,
+        title,
+        messages: chatHistory,
+        model: currentModel,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      currentConvId = ref.id;
+    }
+  } catch(e){ console.error('Error guardando conv:', e); }
+}
+
+async function loadConversations(){
+  if(!currentUser) return;
+  try{
+    const snap = await db.collection('conversations')
+      .where('uid','==', currentUser.uid)
+      .orderBy('updatedAt','desc')
+      .limit(20)
+      .get();
+    savedConversations = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderConversationsList();
+  } catch(e){ console.error('Error cargando convs:', e); }
+}
+
+function renderConversationsList(){
+  const list = document.getElementById('conv-list');
+  if(!list) return;
+  list.innerHTML = '';
+  if(savedConversations.length === 0){
+    list.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px 10px">No hay conversaciones guardadas</div>';
+    return;
+  }
+  savedConversations.forEach(conv => {
+    const btn = document.createElement('button');
+    btn.className = 'sidebar-btn conv-btn' + (conv.id === currentConvId ? ' active' : '');
+    btn.style.cssText = 'font-size:11px;padding:6px 10px;gap:6px';
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="currentColor" style="width:12px;height:12px;flex-shrink:0"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left">${conv.title || 'Conversación'}</span>
+      <button onclick="deleteConversation('${conv.id}',event)" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:0;font-size:10px;flex-shrink:0" title="Eliminar">✕</button>
+    `;
+    btn.onclick = (e) => {
+      if(e.target.tagName === 'BUTTON') return;
+      loadConversation(conv);
+    };
+    list.appendChild(btn);
   });
-  const d=await r.json();
-  if(!r.ok) throw new Error(d.error?.message||'Error Groq');
-  return d.choices?.[0]?.message?.content||'…';
+}
+
+async function loadConversation(conv){
+  chatHistory = conv.messages || [];
+  currentConvId = conv.id;
+  const cm = document.getElementById('chat-messages');
+  cm.innerHTML = '';
+  chatHistory.forEach(m => addMsg(m.role === 'assistant' ? 'ai' : 'user', m.content));
+  switchPanel('chat-panel');
+  document.querySelectorAll('.conv-btn').forEach(b => b.classList.remove('active'));
+  showToast('Conversación cargada ✓');
+}
+
+async function deleteConversation(id, e){
+  e.stopPropagation();
+  if(!confirm('¿Eliminar esta conversación?')) return;
+  try{
+    await db.collection('conversations').doc(id).delete();
+    if(currentConvId === id){
+      currentConvId = null;
+      clearChat();
+    }
+    await loadConversations();
+    showToast('Eliminada ✓');
+  } catch(err){ showToast('Error al eliminar','err'); }
+}
+
+async function newConversation(){
+  currentConvId = null;
+  clearChat();
+  SFX.nav();
+}
+
+// ══════════════════════════════════════════
+// MARKDOWN RENDERER — COMPLETO Y CORREGIDO
+// ══════════════════════════════════════════
+function parseContent(text){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px';
+
+  // Separar bloques de código del resto
+  const codeReg = /```(\w*)\n?([\s\S]*?)```/g;
+  const parts = [];
+  let last = 0, m;
+
+  while((m = codeReg.exec(text)) !== null){
+    if(m.index > last){
+      parts.push({ type:'text', content: text.slice(last, m.index) });
+    }
+    parts.push({ type:'code', lang: m[1]||'code', content: m[2].trimEnd() });
+    last = m.index + m[0].length;
+  }
+  if(last < text.length){
+    parts.push({ type:'text', content: text.slice(last) });
+  }
+
+  parts.forEach(part => {
+    if(part.type === 'code'){
+      wrap.appendChild(buildCodeBlock(part.lang, part.content));
+    } else {
+      wrap.appendChild(renderMarkdown(part.content));
+    }
+  });
+  return wrap;
+}
+
+function renderMarkdown(text){
+  const container = document.createElement('div');
+  container.style.cssText = 'display:flex;flex-direction:column;gap:2px';
+
+  const lines = text.split('\n');
+  let i = 0;
+
+  while(i < lines.length){
+    const raw = lines[i];
+    const line = raw.trimEnd();
+
+    // Vacía
+    if(line.trim() === ''){
+      const sp = document.createElement('div');
+      sp.style.height = '4px';
+      container.appendChild(sp);
+      i++; continue;
+    }
+
+    // H1
+    if(/^# (.+)/.test(line)){
+      const el = document.createElement('div');
+      el.style.cssText = 'font-family:var(--font-d);font-size:15px;font-weight:700;color:var(--cyan);letter-spacing:1px;margin:8px 0 2px;line-height:1.3';
+      el.appendChild(inlineFormat(line.replace(/^# /,'')));
+      container.appendChild(el); i++; continue;
+    }
+
+    // H2
+    if(/^## (.+)/.test(line)){
+      const el = document.createElement('div');
+      el.style.cssText = 'font-family:var(--font-d);font-size:12px;font-weight:700;color:var(--violet);letter-spacing:1px;margin:6px 0 2px;line-height:1.3';
+      el.appendChild(inlineFormat(line.replace(/^## /,'')));
+      container.appendChild(el); i++; continue;
+    }
+
+    // H3
+    if(/^### (.+)/.test(line)){
+      const el = document.createElement('div');
+      el.style.cssText = 'font-size:12px;font-weight:700;color:var(--text);letter-spacing:0.5px;margin:5px 0 2px;line-height:1.3';
+      el.appendChild(inlineFormat(line.replace(/^### /,'')));
+      container.appendChild(el); i++; continue;
+    }
+
+    // Separador
+    if(/^---+$/.test(line.trim())){
+      const el = document.createElement('div');
+      el.style.cssText = 'height:1px;background:linear-gradient(90deg,var(--cyan),var(--violet),transparent);margin:8px 0;border-radius:1px';
+      container.appendChild(el); i++; continue;
+    }
+
+    // Blockquote
+    if(/^> (.+)/.test(line)){
+      const bq = document.createElement('div');
+      bq.style.cssText = 'border-left:3px solid var(--cyan);padding:6px 10px;background:rgba(0,212,255,.04);border-radius:0 8px 8px 0;margin:4px 0;font-style:italic;color:var(--text2)';
+      bq.appendChild(inlineFormat(line.replace(/^> /,'')));
+      container.appendChild(bq); i++; continue;
+    }
+
+    // Lista con viñetas — agrupa líneas consecutivas
+    if(/^[\-\*•] (.*)/.test(line)){
+      const ul = document.createElement('div');
+      ul.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding-left:2px;margin:2px 0';
+      while(i < lines.length && /^[\-\*•] (.*)/.test(lines[i].trimEnd())){
+        const content = lines[i].trimEnd().replace(/^[\-\*•] /,'');
+        const li = document.createElement('div');
+        li.style.cssText = 'display:flex;gap:8px;align-items:flex-start;line-height:1.65;font-size:13.5px';
+        const dot = document.createElement('span');
+        dot.style.cssText = 'color:var(--cyan);flex-shrink:0;font-size:10px;margin-top:5px';
+        dot.textContent = '▸';
+        const txt = document.createElement('span');
+        txt.style.cssText = 'flex:1;color:var(--text)';
+        txt.appendChild(inlineFormat(content));
+        li.appendChild(dot); li.appendChild(txt);
+        ul.appendChild(li); i++;
+      }
+      container.appendChild(ul); continue;
+    }
+
+    // Lista numerada — FIX del bug 1.1.1.
+    if(/^\d+[\.\)] (.*)/.test(line)){
+      const ol = document.createElement('div');
+      ol.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding-left:2px;margin:2px 0';
+      let counter = 1;
+      while(i < lines.length && /^\d+[\.\)] (.*)/.test(lines[i].trimEnd())){
+        // Extraer contenido ignorando el número original — usar counter propio
+        const content = lines[i].trimEnd().replace(/^\d+[\.\)] /,'');
+        const li = document.createElement('div');
+        li.style.cssText = 'display:flex;gap:8px;align-items:flex-start;line-height:1.65;font-size:13.5px';
+        const num = document.createElement('span');
+        num.style.cssText = 'color:var(--cyan);flex-shrink:0;font-family:var(--font-m);font-size:11px;min-width:18px;margin-top:3px;font-weight:700';
+        num.textContent = `${counter}.`; // ← número propio, NO del texto
+        const txt = document.createElement('span');
+        txt.style.cssText = 'flex:1;color:var(--text)';
+        txt.appendChild(inlineFormat(content));
+        li.appendChild(num); li.appendChild(txt);
+        ol.appendChild(li);
+        i++; counter++; // ← incrementa correctamente
+      }
+      container.appendChild(ol); continue;
+    }
+
+    // Tabla
+    if(/^\|/.test(line) && i+1 < lines.length && /^\|[\s\-\|:]+\|/.test(lines[i+1])){
+      const tableWrap = document.createElement('div');
+      tableWrap.style.cssText = 'overflow-x:auto;margin:6px 0;border-radius:8px;border:1px solid var(--border2)';
+      const table = document.createElement('table');
+      table.style.cssText = 'border-collapse:collapse;width:100%;font-size:12px';
+      const headers = line.split('|').filter(c => c.trim() !== '');
+      const thead = document.createElement('thead');
+      const hr = document.createElement('tr');
+      headers.forEach(h => {
+        const th = document.createElement('th');
+        th.style.cssText = 'padding:7px 10px;background:var(--surface2);color:var(--cyan);font-family:var(--font-d);font-size:9px;letter-spacing:1px;text-align:left;border-bottom:1px solid var(--border2);white-space:nowrap';
+        th.appendChild(inlineFormat(h.trim()));
+        hr.appendChild(th);
+      });
+      thead.appendChild(hr); table.appendChild(thead);
+      i += 2; // saltar header y separador
+      const tbody = document.createElement('tbody');
+      while(i < lines.length && /^\|/.test(lines[i])){
+        const cells = lines[i].split('|').filter(c => c.trim() !== '');
+        const tr = document.createElement('tr');
+        cells.forEach((c, ci) => {
+          const td = document.createElement('td');
+          td.style.cssText = `padding:6px 10px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:top;background:${ci%2===0?'transparent':'rgba(255,255,255,.01)'}`;
+          td.appendChild(inlineFormat(c.trim()));
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr); i++;
+      }
+      table.appendChild(tbody); tableWrap.appendChild(table);
+      container.appendChild(tableWrap); continue;
+    }
+
+    // Bloque matemático visual — detecta líneas con √, ², ³, fracciones etc
+    if(/[√∛∜²³⁴⁵⁶⁷⁸⁹⁰¹±×÷∑∫∞π≤≥≠≈∈∉⊂⊃∪∩]/.test(line) ||
+       /\d+[\/\\]\d+/.test(line) ||
+       /\^[\d\{]/.test(line)){
+      const math = document.createElement('div');
+      math.style.cssText = 'font-family:var(--font-m);font-size:13px;background:var(--bg2);border:1px solid var(--border2);border-left:3px solid var(--violet);border-radius:0 8px 8px 0;padding:8px 12px;color:var(--pink);line-height:1.8;overflow-x:auto;white-space:pre-wrap;margin:2px 0';
+      math.textContent = line;
+      container.appendChild(math); i++; continue;
+    }
+
+    // Párrafo normal
+    const p = document.createElement('div');
+    p.style.cssText = 'font-size:13.5px;line-height:1.65;color:var(--text)';
+    p.appendChild(inlineFormat(line));
+    container.appendChild(p); i++;
+  }
+
+  return container;
+}
+
+function inlineFormat(text){
+  const span = document.createElement('span');
+
+  let html = text
+    // Escapar HTML
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+
+    // Negrita + cursiva → ***texto***
+    .replace(/\*\*\*(.*?)\*\*\*/g,
+      '<strong style="font-weight:700;font-style:italic;color:var(--cyan)">$1</strong>')
+
+    // Negrita → **texto**
+    .replace(/\*\*(.*?)\*\*/g,
+      '<strong style="font-weight:700;color:var(--text)">$1</strong>')
+
+    // Cursiva → *texto*
+    .replace(/\*([^\*\n]+?)\*/g,
+      '<em style="font-style:italic;color:var(--text2)">$1</em>')
+
+    // Cursiva → _texto_
+    .replace(/\b_([^_\n]+?)_\b/g,
+      '<em style="font-style:italic;color:var(--text2)">$1</em>')
+
+    // Código inline → `código`
+    .replace(/`([^`\n]+?)`/g,
+      '<code style="font-family:var(--font-m);font-size:11.5px;background:var(--bg2);color:var(--cyan);padding:1px 5px;border-radius:4px;border:1px solid var(--border2)">$1</code>')
+
+    // Tachado → ~~texto~~
+    .replace(/~~(.*?)~~/g,
+      '<span style="text-decoration:line-through;color:var(--text3)">$1</span>')
+
+    // Subrayado → __texto__
+    .replace(/__(.*?)__/g,
+      '<span style="text-decoration:underline;text-underline-offset:3px;color:var(--text)">$1</span>')
+
+    // Resaltado → ==texto==
+    .replace(/==(.*?)==/g,
+      '<mark style="background:rgba(245,158,11,.2);color:var(--amber);padding:0 3px;border-radius:3px">$1</mark>')
+
+    // Superíndice matemático → 2^3 o x^{n}
+    .replace(/(\w+)\^(\{[^}]+\}|\d+)/g, (_, base, exp) =>
+      `${base}<sup style="font-size:0.75em;color:var(--pink)">${exp.replace(/[\{\}]/g,'')}</sup>`)
+
+    // Fracción simple → a/b (solo números)
+    .replace(/(\d+)\/(\d+)/g,
+      '<span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;font-size:0.8em;line-height:1.1;margin:0 2px"><span style="border-bottom:1px solid var(--text2);padding:0 2px">$1</span><span style="padding:0 2px">$2</span></span>')
+
+    // Link → [texto](url)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener" style="color:var(--cyan);text-decoration:underline;text-underline-offset:3px">$1</a>');
+
+  span.innerHTML = html;
+  return span;
 }
 
 // ══════════════════════════════════════════
@@ -1156,6 +1592,8 @@ function startApp(){
   document.getElementById('stat-days').textContent=days;
   setAv('call-av-display',u.photoURL,ini,true);
   loadPrefsUI();SFX.login();
+  // Cargar conversaciones guardadas
+loadConversations();
 }
 
 function setAv(id,url,ini,isCall=false){
@@ -1538,8 +1976,10 @@ function addMsg(role,text){
   cb.onclick=()=>navigator.clipboard.writeText(bubble._raw||text).then(()=>{SFX.ok();showToast('Copiado ✓')});
   acts.appendChild(cb);
   if(role==='ai'){
-    const rb=mkA('read','<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>');
-    rb.onclick=()=>readAloud(text,rb);acts.appendChild(rb);
+const rb=mkA('read','<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>');
+rb.title = 'Leer en voz alta (click para parar)';
+rb.onclick = () => readAloud(text, rb);
+acts.appendChild(rb);
     const lb=mkA('like','<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>');
     lb.onclick=()=>{lb.classList.toggle('liked');SFX.like();saveReaction(text,'like')};acts.appendChild(lb);
     const db2=mkA('dis','<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L10.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg>');
@@ -1551,7 +1991,8 @@ function addMsg(role,text){
   bw.appendChild(bubble);bw.appendChild(meta);bw.appendChild(acts);
   wrap.appendChild(av);wrap.appendChild(bw);
   chatEl.appendChild(wrap);chatEl.scrollTop=chatEl.scrollHeight;
-  if(role==='ai'&&prefs.auto_read)readAloud(text);
+// No auto-leer en chat normal, solo si el usuario clickea el botón
+// (auto_read queda solo para llamada)
   return bubble;
 }
 function mkA(cls,html){const b=document.createElement('button');b.className=`mact ${cls}`;b.innerHTML=html;return b}
@@ -1585,13 +2026,49 @@ function addTyping(){
   chatEl.appendChild(w);chatEl.scrollTop=chatEl.scrollHeight;return w;
 }
 
-function readAloud(text,btn){
-  if(!window.speechSynthesis)return;
+let ttsActive = false;
+
+function readAloud(text, btn){
+  if(!window.speechSynthesis) return;
+
+  // Si ya está hablando y se clickea el mismo botón → parar
+  if(ttsActive && window.speechSynthesis.speaking){
+    window.speechSynthesis.cancel();
+    ttsActive = false;
+    if(btn) btn.classList.remove('reading');
+    return;
+  }
+
   window.speechSynthesis.cancel();
-  const clean=text.replace(/```[\s\S]*?```/g,'[bloque de código]').replace(/[*_`#>]/g,'').trim();
-  const utt=new SpeechSynthesisUtterance(clean);
-  utt.lang=prefs.tts_lang||'es-ES';utt.rate=1.05;utt.pitch=1;
-  if(btn){btn.classList.add('reading');utt.onend=()=>btn.classList.remove('reading')}
+  const clean = text
+    .replace(/```[\s\S]*?```/g, 'bloque de código')
+    .replace(/[*_`#>~=]/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .trim();
+
+  if(!clean) return;
+
+  const utt = new SpeechSynthesisUtterance(clean);
+  utt.lang  = prefs.tts_lang || 'es-ES';
+  utt.rate  = 1.05;
+  utt.pitch = 1;
+
+  ttsActive = true;
+  if(btn){
+    btn.classList.add('reading');
+    utt.onend = () => {
+      ttsActive = false;
+      btn.classList.remove('reading');
+    };
+    utt.onerror = () => {
+      ttsActive = false;
+      btn.classList.remove('reading');
+    };
+  } else {
+    utt.onend  = () => { ttsActive = false };
+    utt.onerror= () => { ttsActive = false };
+  }
+
   window.speechSynthesis.speak(utt);
 }
 
@@ -1621,6 +2098,10 @@ async function sendMessage(){
       document.getElementById('stat-msgs').textContent=nc;
       await db.collection('users').doc(currentUser.uid).update({msgCount:firebase.firestore.FieldValue.increment(1)});
       await db.collection('chats').add({uid:currentUser.uid,userMsg:text,aiMsg:reply.slice(0,500),model:currentModel,ts:firebase.firestore.FieldValue.serverTimestamp()});
+      // Guardar conversación automáticamente
+await saveConversation();
+// Recargar lista del sidebar
+await loadConversations();
     }
   }catch(e){
     typing.remove();addMsg('ai','⚠️ '+e.message);SFX.err();
