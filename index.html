@@ -1126,13 +1126,147 @@ Personalidad: inteligente, directa, con energía de canal en vivo. Tienes carác
 Tono profesional pero dinámico. Referencias al streaming, música y entretenimiento cuando aplique.
 Ayudas con: ideas de contenido, guiones, crecimiento de canales, traducción, código, tecnología y todo lo que necesite el usuario.
 Cuando generes código usa bloques \`\`\`lenguaje\n...\`\`\`.
-Nunca digas "como IA" — simplemente eres WorldAI.`;
+Nunca digas "como IA" — simplemente eres WorldAI.siempre que escribas codogo asefutate de terminarlo simpre al ponerle el \` , siempre que digas algo o hagas html pon 2026 ya que estamos en ese año.`;
   const langNote=prefs.lang_es?'Responde siempre en español a menos que el usuario escriba en otro idioma.':'';
   const expNote=prefs.expert_mode?'Tu especialidad principal es el streaming, producción de contenido y WorldTV.':'';
   const custom=prefs.sys_prompt?`\n\nINSTRUCCIONES PERSONALES (sigue siempre):\n${prefs.sys_prompt}`:'';
   return `${base}\n${langNote}\n${expNote}${custom}`;
 }
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WorldTV CyberStore</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background: #09090b; }
+        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col justify-between">
 
+    <!-- NAVBAR -->
+    <header class="sticky top-0 z-50 glass px-6 py-4 flex justify-between items-center">
+        <h1 class="text-xl font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-fuchsia-500">WORLDSTORE ⚡</h1>
+        <button onclick="toggleCart()" class="relative p-2 bg-zinc-900 rounded-full border border-zinc-800">
+            <i class="fa-solid fa-basket-shopping text-cyan-400"></i>
+            <span id="cart-count" class="absolute -top-1 -right-1 bg-fuchsia-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">0</span>
+        </button>
+    </header>
+
+    <!-- PRODUCTOS -->
+    <main class="max-w-5xl mx-auto px-6 py-8 grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
+        <!-- Tarjeta 1 -->
+        <div class="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden hover:border-fuchsia-500/50 transition">
+            <img src="https://images.unsplash.com/photo-1590608897129-79da98d15969?w=400&q=80" class="w-full h-48 object-cover">
+            <div class="p-4">
+                <h3 class="font-bold text-lg">Micrófono Pro Streamer</h3>
+                <p class="text-sm text-zinc-400 mt-1">Sonido de estudio en vivo.</p>
+                <div class="flex justify-between items-center mt-4">
+                    <span class="text-xl font-black text-cyan-400">$120.00</span>
+                    <button onclick="addToCart('Mic Pro', 120.00)" class="px-3 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-500 rounded-lg text-xs font-bold transition">Añadir</button>
+                </div>
+            </div>
+        </div>
+        <!-- Tarjeta 2 -->
+        <div class="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden hover:border-fuchsia-500/50 transition">
+            <img src="https://images.unsplash.com/photo-1618384887929-16ec33fab9ef?w=400&q=80" class="w-full h-48 object-cover">
+            <div class="p-4">
+                <h3 class="font-bold text-lg">Teclado Mecánico RGB</h3>
+                <p class="text-sm text-zinc-400 mt-1">Switches rápidos y silenciosos.</p>
+                <div class="flex justify-between items-center mt-4">
+                    <span class="text-xl font-black text-cyan-400">$85.00</span>
+                    <button onclick="addToCart('Teclado RGB', 85.00)" class="px-3 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-500 rounded-lg text-xs font-bold transition">Añadir</button>
+                </div>
+            </div>
+        </div>
+        <!-- Tarjeta 3 -->
+        <div class="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden hover:border-fuchsia-500/50 transition">
+            <img src="https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=400&q=80" class="w-full h-48 object-cover">
+            <div class="p-4">
+                <h3 class="font-bold text-lg">Auriculares Hi-Fi</h3>
+                <p class="text-sm text-zinc-400 mt-1">Aislamiento acústico premium.</p>
+                <div class="flex justify-between items-center mt-4">
+                    <span class="text-xl font-black text-cyan-400">$150.00</span>
+                    <button onclick="addToCart('Auriculares Pro', 150.00)" class="px-3 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-500 rounded-lg text-xs font-bold transition">Añadir</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- CARRITO -->
+    <div id="cart-sidebar" class="fixed inset-y-0 right-0 w-full max-w-sm glass z-50 transform translate-x-full transition-transform duration-300 flex flex-col justify-between">
+        <div class="p-6 border-b border-zinc-800 flex justify-between items-center">
+            <h3 class="text-lg font-bold"><i class="fa-solid fa-cart-shopping text-cyan-400 mr-2"></i>Carrito</h3>
+            <button onclick="toggleCart()" class="text-zinc-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+        </div>
+        <div id="cart-items" class="flex-1 overflow-y-auto p-6 space-y-4">
+            <p class="text-zinc-500 text-center py-8">El carrito está vacío.</p>
+        </div>
+        <div class="p-6 border-t border-zinc-800 space-y-4">
+            <div class="flex justify-between font-bold text-lg">
+                <span>Total:</span>
+                <span id="cart-total" class="text-fuchsia-400">$0.00</span>
+            </div>
+            <button onclick="checkout()" class="w-full py-3 bg-gradient-to-r from-cyan-500 to-fuchsia-600 hover:opacity-90 font-bold rounded-lg transition">Pagar Ahora</button>
+        </div>
+    </div>
+
+    <footer class="py-6 text-center text-xs text-zinc-600 border-t border-zinc-900">
+        &copy; 2024 WorldTV Store.
+    </footer>
+
+    <script>
+        let cart = [];
+        function toggleCart() { document.getElementById('cart-sidebar').classList.toggle('translate-x-full'); }
+        
+        function addToCart(name, price) {
+            const item = cart.find(i => i.name === name);
+            if (item) { item.qty++; } else { cart.push({ name, price, qty: 1 }); }
+            updateCart();
+        }
+
+        function removeItem(name) {
+            cart = cart.filter(i => i.name !== name);
+            updateCart();
+        }
+
+        function updateCart() {
+            const container = document.getElementById('cart-items');
+            const totalCount = cart.reduce((acc, i) => acc + i.qty, 0);
+            const totalSum = cart.reduce((acc, i) => acc + (i.price * i.qty), 0);
+
+            document.getElementById('cart-count').innerText = totalCount;
+            document.getElementById('cart-total').innerText = `$${totalSum.toFixed(2)}`;
+
+            if (cart.length === 0) {
+                container.innerHTML = '<p class="text-zinc-500 text-center py-8">El carrito está vacío.</p>';
+                return;
+            }
+
+            container.innerHTML = cart.map(i => `
+                <div class="flex justify-between items-center bg-zinc-950 p-3 rounded-lg border border-zinc-800">
+                    <div>
+                        <h4 class="font-bold text-sm text-white">${i.name}</h4>
+                        <p class="text-xs text-zinc-400">$${i.price} x ${i.qty}</p>
+                    </div>
+                    <button onclick="removeItem('${i.name}')" class="text-red-400 hover:text-red-300 text-sm"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            `).join('');
+        }
+
+        function checkout() {
+            if (cart.length === 0) return alert("¡Tu carrito está vacío!");
+            alert("¡Compra procesada con éxito! 🚀");
+            cart = [];
+            updateCart();
+            toggleCart();
+        }
+    </script>
+</body>
+</html>
 // ══════════════════════════════════════════
 // MODEL SELECTOR
 // ══════════════════════════════════════════
